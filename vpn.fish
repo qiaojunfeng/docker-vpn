@@ -39,7 +39,7 @@ function dockervpn-openvpn  --description "Use openvpn in docker-vpn"
     set -a dockerCmd "--publish" "$bindIf:$sshPort:22"
     set -a dockerCmd "--publish" "$bindIf:$socksPort:1080"
     set -a dockerCmd "--publish" "$bindIf:$httpProxyPort:3128"
-    set -a dockerCmd "--env" "AUTHORIZED_KEYS=\"$authorizedKeys\""
+    set -a dockerCmd "--env" "AUTHORIZED_KEYS=$authorizedKeys"
     if test -f "$vpnConfig/$vpnName.ovpn"
         set -a dockerCmd "--mount" "type=bind,src=$vpnConfig/$vpnName.ovpn,dst=/vpn/config,readonly=true"
         set -a vpnCmd "--config" "/vpn/config"
@@ -54,11 +54,11 @@ function dockervpn-openvpn  --description "Use openvpn in docker-vpn"
     end
     # add custom hosts
     if test -f "$vpnConfig/$vpnName.hosts"
-        set -a dockerCmd (dockervpn-read_hosts "$vpnConfig/$vpnName.hosts")
+        set -a dockerCmd (dockervpn-read-hosts "$vpnConfig/$vpnName.hosts")
     end
     # add custom mounts
     if test -f "$vpnConfig/$vpnName.mounts"
-        set -a dockerCmd (dockervpn-read_mounts "$vpnConfig/$vpnName.mounts")
+        set -a dockerCmd (dockervpn-read-mounts "$vpnConfig/$vpnName.mounts")
     end
     set -a dockerCmd "$dockerImage"
 
@@ -121,7 +121,7 @@ function dockervpn-openconnect  --description "Use openconnect in docker-vpn"
     set -a dockerCmd "--publish" "$bindIf:$sshPort:22"
     set -a dockerCmd "--publish" "$bindIf:$socksPort:1080"
     set -a dockerCmd "--publish" "$bindIf:$httpProxyPort:1088"
-    set -a dockerCmd "--env" "AUTHORIZED_KEYS=\"$authorizedKeys\""
+    set -a dockerCmd "--env" "AUTHORIZED_KEYS=$authorizedKeys"
     if test -f "$vpnConfig/$vpnName.config"
         set -a dockerCmd "--mount" "type=bind,src=$vpnConfig/$vpnName.config,dst=/vpn/openconnect.config,readonly=true"
         set -a vpnCmd "--config" "/vpn/openconnect.config"
@@ -131,11 +131,11 @@ function dockervpn-openconnect  --description "Use openconnect in docker-vpn"
     end
     # add custom hosts
     if test -f "$vpnConfig/$vpnName.hosts"
-        set -a dockerCmd (dockervpn-read_hosts "$vpnConfig/$vpnName.hosts")
+        set -a dockerCmd (dockervpn-read-hosts "$vpnConfig/$vpnName.hosts")
     end
     # add custom mounts
     if test -f "$vpnConfig/$vpnName.mounts"
-        set -a dockerCmd (dockervpn-read_mounts "$vpnConfig/$vpnName.mounts")
+        set -a dockerCmd (dockervpn-read-mounts "$vpnConfig/$vpnName.mounts")
     end
 
     if test -f "$vpnProfile"
@@ -147,19 +147,18 @@ function dockervpn-openconnect  --description "Use openconnect in docker-vpn"
         set -a vpnCmd "$OC_HOST"
         set -a vpnCmd "--user" "$OC_USER"
 
-        if test -f "$vpnSecret"
-            set -a vpnCmd "--passwd-on-stdin"
-            # use detached mode
-            set -a dockerCmd "--detach"
-        else
-            # set -a vpnCmd "--no-passwd"
-            echo "Password not provided, you might need to type it manually"
-            echo "After typing the password, use Ctrl-p + Ctrl-q to detach from docker"
-            echo ""
-        end
         if test -n "$OC_GROUP"
             set -a vpnCmd "--authgroup" "$OC_GROUP"
         end
+    end
+
+    if test -f "$vpnSecret"
+        set -a vpnCmd "--passwd-on-stdin"
+    else
+        # set -a vpnCmd "--no-passwd"
+        # echo "Password not provided, you might need to type it manually"
+        # echo "After typing the password, use Ctrl-p + Ctrl-q to detach from docker"
+        # echo ""
     end
 
     # append any extra args provided
@@ -187,21 +186,36 @@ function dockervpn-openconnect  --description "Use openconnect in docker-vpn"
         # debug
         # echo $vpnSecret
         # echo $dockerCmd $vpnCmd
-        # this allows typing additional inputs from terminal, but if all
-        # passwords are provided in the secret file, one needs to type an
-        # additional Enter key to fully detach from the container
-        # cat "$vpnSecret" - | $dockerCmd $vpnCmd
-        # this won't allow typing additional inputs from terminal, and detach
-        # from the container immediately
-        cat "$vpnSecret" | $dockerCmd $vpnCmd
+        # this allows typing additional inputs from terminal, e.g., if not all
+        # the passwords are provided in the secret file, one can type the
+        # additional pin to authenticate
+        cat "$vpnSecret" - | $dockerCmd $vpnCmd
     else
         set -a dockerCmd "--interactive" "--tty"
+        if test -f "$vpnConfig/$vpnName.mounts"
+            grep '/vpn/secret' "$vpnConfig/$vpnName.mounts" > /dev/null
+            if test $status -eq 0
+                # set -p vpnCmd "cat" "/vpn/secret" "|"
+                # This is passed as arguments to this function, not needed here
+                # set -a vpnCmd "<" "/vpn/secret"
+                # I need to wrap all the commands in one, otherwise pipe (|) or
+                # redirect (<) won't work
+                # "cat: unrecognized option: config"
+                # $vpmCmd contains dash, I need to use -- to indicate string
+                # join that do not treat $vpnCmd as arguments
+                set vpnCmd "/bin/sh" "-c" (string join -- " " $vpnCmd)
+                # use detached mode to release the terminal
+                set -a dockerCmd "--detach"
+            end
+        end
         set -a dockerCmd "$dockerImage"
+        # debug
+        # echo $dockerCmd $vpnCmd
         $dockerCmd $vpnCmd
     end
 end
 
-function dockervpn-read_hosts
+function dockervpn-read-hosts
     # argv[1] is "$vpnConfig/$vpnName.hosts"
     while read -l line
         # Skip commented lines and empty lines
@@ -214,11 +228,11 @@ function dockervpn-read_hosts
         set hostname_ (echo "$line" | awk '{print $2}')
         set ip_ (echo "$line" | awk '{print $1}')
         set -a dockerCmd "--add-host" "$ip_:$hostname_"
-        echo "--add-host" "$ip_:$hostname_"
+        echo "--add-host=$ip_:$hostname_"
     end < $argv[1]
 end
 
-function dockervpn-read_mounts
+function dockervpn-read-mounts
     # argv[1] is "$vpnConfig/$vpnName.mounts"
     while read -l line
         # Skip commented lines and empty lines
@@ -230,11 +244,11 @@ function dockervpn-read_mounts
         end
         set file_remote (echo "$line" | awk '{print $2}')
         set file_local (echo "$line" | awk '{print $1}')
-        echo "--mount" "type=bind,src=$file_local,dst=$file_remote,readonly=true"
+        echo "--mount=type=bind,src=$file_local,dst=$file_remote,readonly=true"
     end < $argv[1]
 end
 
-function dockervpn-openconnect_new_profile
+function dockervpn-openconnect-new-profile
     echo "This tool will create automatic OpenConnect profile to allow automatic connections"
     echo
 
