@@ -30,9 +30,15 @@ cat /etc/ssh/ssh_host_ed25519_key.pub >> /root/.ssh/authorized_keys
 echo "Starting supervisor..."
 /usr/bin/supervisord --configuration=/etc/supervisord.conf --logfile=/dev/null
 
+# https://www.cisco.com/c/en/us/support/docs/security/secure-client-5/223124-configure-secure-client-vpn-for-use-in.html
 # Start cisco service
-echo "Starting Cisco Secure Client service..."
-/opt/cisco/secureclient/bin/vpnagentd
+# See supervisord.conf
+# echo "Starting Cisco Secure Client service..."
+# /opt/cisco/secureclient/bin/vpnagentd
+
+# Cisco client is at /opt/cisco/secureclient/bin/vpn
+# Use the following for debugging
+# export CSC_LOGGING_OUTPUT=STDOUT
 
 # Execute the command passed to docker (likely a VPN connection command)
 exec "$@"

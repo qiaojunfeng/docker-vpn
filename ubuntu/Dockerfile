@@ -7,7 +7,9 @@ RUN apt update && apt -y install \
     python3-pip \
     bind9 bind9-utils bind9-dnsutils bind9-host \
     curl \
-    supervisor
+    supervisor \
+    libxml2 libgtk2.0-bin \
+    net-tools iptables network-manager policykit-1
 RUN pip install --break-system-packages pproxy[accelerated]
 
 # Fix Cannot open "/proc/sys/net/ipv4/route/flush": Read-only file system
@@ -26,9 +28,22 @@ COPY docker-entrypoint.sh /
 COPY etc/ssh/sshd_config /etc/ssh/
 COPY etc/supervisord.conf /etc/
 
-RUN apt -y install libxml2 libgtk2.0-bin
-COPY cisco-secure-client-linux64-5.1.10.233-core-vpn-webdeploy-k9.sh /cisco.sh
-RUN sh /cisco.sh && rm /cisco.sh
+# COPY cisco-secure-client-linux64-5.1.10.233-core-vpn-webdeploy-k9.sh /cisco.sh
+# RUN sh /cisco.sh && rm /cisco.sh
+
+# From https://aur.archlinux.org/packages/cisco-secure-client
+# COPY cisco-secure-client-linux64-*.tar.gz /cisco.tar.gz
+# RUN tar -xzf /cisco.tar.gz -C /opt && rm /cisco.tar.gz
+# RUN cd /opt && mkdir /opt/cisco && mv /opt/cisco-secure-client-linux64*/vpn /opt/cisco/secureclient
+
+# From https://bluelink.ca/ftp/CiscoVPN/
+COPY cisco-secure-client-linux64-5.1.12.146-predeploy-deb-k9.tar.gz /cisco.tar.gz
+RUN mkdir /tmp_cisco \
+    && cd /tmp_cisco \
+    && tar -xzf /cisco.tar.gz \
+    && dpkg -i cisco-secure-client-vpn-cli_*.deb \
+    && cd / \
+    && rm -r /tmp_cisco /cisco.tar.gz
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 
